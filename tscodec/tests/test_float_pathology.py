@@ -68,8 +68,13 @@ def test_distinct_f32_nan_payloads_survive_bit_exact():
         0xFFC00000,
         0x7F800001,  # signalling NaN
     ]
-    values = [_f32_from_bits(b) for b in bits]
-    a = np.array(values, dtype=np.float32)
+    # Build directly from the bit pattern via a uint32 view -- going through
+    # a Python float (a double) and back, as `_f32_from_bits` does, would
+    # round-trip through hardware float64->float32 NaN canonicalisation and
+    # could silently normalise/quiet the payload before the codec ever sees
+    # it, which would make this test measure struct/numpy casting behaviour
+    # instead of the codec.
+    a = np.array(bits, dtype=np.uint32).view(np.float32)
     raw_bits = a.view(np.uint32)
     assert len(set(raw_bits.tolist())) == len(bits)
     assert np.all(np.isnan(a))

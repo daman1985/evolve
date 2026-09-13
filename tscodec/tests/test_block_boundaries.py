@@ -91,12 +91,12 @@ def test_run_transition_exactly_at_block_boundary(block_size, dtype):
         if n > 2 * block_size:
             # second transition at the second block boundary too
             a2 = np.array(a, copy=True)
-            info = np.iinfo(dtype) if not np.issubdtype(dtype, np.floating) and dtype != np.bool_ else None
             if dtype == np.bool_:
                 a2[2 * block_size:] = False
             elif np.issubdtype(dtype, np.floating):
-                a2[2 * block_size:] = dtype.type(0.0)
+                a2[2 * block_size:] = np.dtype(dtype).type(0.0)
             else:
+                info = np.iinfo(dtype)
                 a2[2 * block_size:] = info.min
             _assert_roundtrip(a2)
 
