@@ -181,3 +181,51 @@ thing it catches arrives. Three findings worth keeping:
    expanded in memory before being rejected. It still raises correctly; this is a
    robustness nit, not a correctness bug. Passing it to the engineer as a
    secondary item rather than spending a round on it.
+
+### Round 1 spec (architect, opus)
+
+Spec at `tscodec/specs/round1.md`. Design: a 15-byte header with a container-mode
+byte (`SINGLE_RAW` / `SINGLE_ZLIB` / `BLOCKED`); `BLOCKED` means 8192-element
+blocks with a fixed-size directory parsed in a single `np.frombuffer`; four scheme
+ids — `RAW`, `ZLIB_RAW`, `BITPACK` (frame-of-reference on values) and
+`BITPACK_DELTA` (FOR on first differences) — with both bit-packing schemes
+carrying a **patched exception list** so a handful of outliers cannot force the
+whole block to a wide bit width. Scheme ids 4-63 are reserved so rounds 2 and 3
+slot in without a format break.
+
+The architect simulated the whole selector against the real corpus with all
+overheads counted before writing a line of spec: **SCORE 5.6766 -> 7.43 predicted
+(+31%), HOLDOUT 4.7767 -> 6.00 (+26%)**, which would clear both `zstd -19` (6.524)
+and `lzma -6` (7.222) in this round. Predicted movers: `ts_ms` 2.97 -> 20.7,
+`counter` 4.57 -> 10.7, `small_ints` 15.7 -> 24.8, `bursty` 4.57 -> 6.55,
+holdout `regime_switch` 8.49 -> 17.4. Nothing predicted to regress.
+
+**The architect dropped delta-of-delta from the round, against my plan, and was
+right to.** My round 1 intent named it explicitly. The ablation shows it is
+selected on *zero* blocks across all 28 columns: frame-of-reference already
+subtracts the block's base, so second differencing only pays when the slope drifts
+*within* a block, and in this corpus it never does. Id 4 is reserved in case a
+later corpus needs it; the budget went instead to the exception mechanism, which is
+what actually unlocks `sparse`, `ids_runs`, `bursty` and `ts_ms`. This is the
+single most valuable thing the opus seat has produced so far — not the design, but
+the refusal to spend a round on a technique that the evidence says does nothing
+here. It also retroactively justifies the seat's cost: I would have specified
+delta-of-delta myself and burned the round finding out.
+
+Two measured findings carried into the spec as non-negotiable: (a) the packed bit
+layout is provably identical across lane widths 8/16/32/64, and using the narrowest
+sufficient lane is a 7-12x decode speedup on `bool` and `int16` — a fixed 64-bit
+lane would put the decode gate at risk; (b) a cheap ZLIB trigger rule
+(`>=8 bits/elem` OR `>=50% literal repeats`) produces bit-identical output to
+trying zlib on every block while taking `ts_ms` encode from ~35 to 288 MB/s. That
+second one is the encode gate saved: my stated round 1 risk was exactly that a
+selector trying many candidates per block would break it.
+
+Correctness hazards flagged to the engineer and auditor: `np.cumsum` silently
+widening `uint8/16/32` to `uint64` on the installed NumPy 2.4.6 (every cumsum needs
+an explicit `dtype=`), wrapping-unsigned delta as the *correctness mechanism*
+rather than a bug to be avoided, per-block width recomputation on the tail block,
+and `bool` bytes that may not be exactly 0/1.
+
+No-expansion becomes structural rather than accidental this round: a final length
+comparison guarantees `len(encode(a)) <= 15 + a.nbytes` unconditionally.
