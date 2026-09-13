@@ -145,3 +145,39 @@ Targets are unchanged. Done still means all gates green on dev and holdout, fina
 SCORE >= 2.5x baseline (>= 14.19) and above every reference line including lzma-6
 at 7.222. Fewer rounds does not mean a lower bar; if the bar is missed, `SUMMARY.md`
 reports the shortfall honestly.
+
+### Auditor pass (test bed built ahead of round 1)
+
+**993 tests passing in 4.4s**; a deep run (`TSCODEC_FUZZ_CASES=3000`) reaches 3593
+in ~11s. Attack classes now in place: integer-overflow bait (alternating
+INT64_MIN/MAX, monotone sequences that overflow when differenced, delta-of-delta
+zigzags, UINT64_MAX neighbours), block-boundary edges parametrised over five
+plausible block sizes so the tests stay valid whatever round 1 picks, the
+no-expansion bound at lengths 0 through 10000 for every dtype, float pathology
+(distinct quiet/signalling NaN payloads, `-0.0`, infinities, denormals), structure
+edges, bitstream corruption at every truncation point and every corrupted header
+byte plus 1000 random-flip trials, and a seeded fuzz loop.
+
+**No failures against the round 0 codec** — expected, since round 0 does no delta
+transform at all. The point of this pass was to have the trap built before the
+thing it catches arrives. Three findings worth keeping:
+
+1. **The no-expansion gate really does hold at small sizes.** My suspicion after
+   round 0 was that the gate only passed because 1.5 MB columns hide header
+   overhead. Tested properly at n = 0, 1, 2, 3, 7, 8, 16, 100, 1000, 10000 for
+   every dtype, it holds — the `+64`-byte floor term covers the header below
+   ~6400 bytes and zlib stays inside the 1% slack above it. So the round 0 result
+   was honest, not an artifact. Good: the gate is now genuinely exercised, and
+   round 1's block framing will be measured against a bound that can actually fail.
+2. **The auditor found three bugs in its own tests, not in the codec** — most
+   instructively, that building a signalling-NaN `float32` test value by way of a
+   Python float silently canonicalises the payload, so the test was failing
+   against its own harness. That is exactly the class of mistake that would have
+   produced a false alarm against round 2's float schemes, caught before it could
+   waste a round.
+3. **A decompression-bomb observation for the engineer**: `decode()` currently
+   calls `zlib.decompress` unconditionally before checking the decompressed length
+   against the header's declared count, so a small corrupted buffer can be fully
+   expanded in memory before being rejected. It still raises correctly; this is a
+   robustness nit, not a correctness bug. Passing it to the engineer as a
+   secondary item rather than spending a round on it.
