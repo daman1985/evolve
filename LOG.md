@@ -101,3 +101,47 @@ per-column gaps are the whole argument for what to build and I want the
 diagnosis on the record before the implementation. Risk I am watching: bit-packing
 in pure NumPy is where the encode-speed gate could break, and a per-block Python
 loop over several candidate schemes multiplies that cost.
+
+---
+
+### Schedule revision (mid-round-1): six rounds become four
+
+Recording a change to `PLAN.md` §4 and the reason for it, so the run stays legible.
+
+The plan committed to six rounds without a budget model attached to it. After
+setup plus round 0 the session was ~28% through its usage window with ~4.5 hours
+to reset. Round 0 cost a single engineer call (~132k subagent tokens) plus manager
+turns; rounds 1-5 as planned each carry four calls (architect on opus, engineer,
+auditor, bench-runner), so every remaining round is *more* expensive than the one
+already spent. Five of them do not fit in the remaining budget. Discovering that
+at round 3 would mean abandoning the run half-finished, with the entropy-coding
+and hardening work — the rounds that convert a promising codec into a usable one —
+never reached.
+
+So the remaining schedule is compressed, keeping the same technical ground:
+
+- **Round 1** (as dispatched): per-block framing, integer transforms, bit-packing,
+  cost-model scheme selection with raw fallback.
+- **Round 2** (was rounds 2+3): the float model *and* redundancy beyond the local
+  model — byte-plane transposition / XOR / quantisation-grid detection, plus RLE,
+  dictionary and sparse encoding.
+- **Round 3** (was rounds 4+5): entropy coding the residual, selector and
+  block-size tuning, scheme pruning for speed, final fuzz pass and packaging.
+
+The auditor authors tests in two rounds rather than five (after bit-packing lands,
+and at the end); its suite still runs every round through the test gate, it is the
+*authoring* calls that are cut. The architect keeps one opus call per round —
+that is the highest value-per-token seat in the loop and the last thing worth
+economising on.
+
+What this costs: less iteration *within* each theme. The original schedule allowed
+a round to land a float scheme, measure it, and refine it the following round.
+Now each theme gets one shot plus whatever the final tuning round can fix. If a
+merged round produces a change that fails a gate, the revert is more expensive
+because more landed at once. I am accepting that risk over the alternative, which
+is a run that stops before it has anything usable.
+
+Targets are unchanged. Done still means all gates green on dev and holdout, final
+SCORE >= 2.5x baseline (>= 14.19) and above every reference line including lzma-6
+at 7.222. Fewer rounds does not mean a lower bar; if the bar is missed, `SUMMARY.md`
+reports the shortfall honestly.

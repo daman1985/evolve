@@ -181,7 +181,10 @@ the cheapest and fastest model is exactly right, and its narrowness is a feature
 
 ## 4. Rounds and definition of done
 
-**Six rounds.**
+**Six rounds, revised mid-run to four.** (See the schedule-revision entry in
+`LOG.md`: rounds 2+3 were merged, and rounds 4+5 were merged, to fit the session's
+usage budget. The technical ground covered is unchanged; the round themes below
+stand as written, they are simply delivered in four rounds instead of six.)
 
 - **Round 0 — harness and honest baseline.** Build the corpus generator, the
   benchmark runner, the fuzz suite, and a deliberately naive codec (header +
