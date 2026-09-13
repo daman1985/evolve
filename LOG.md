@@ -39,3 +39,65 @@ to read its own definition file from `.claude/agents/` as its first action. The
 role files stay the single source of truth for each seat's responsibility and
 boundaries; only the wiring is different. Every round below names which seat did
 which piece of work.
+
+**Result.** Harness, 14-column dev corpus, 14-column holdout corpus, 59 unit tests
+and the naive codec all landed. Determinism of the corpus was verified by hashing
+it across two separate processes. Measured baseline:
+
+```
+SCORE (dev geomean ratio)     = 5.6766
+HOLDOUT_SCORE                 = 4.7767
+GATE lossless      PASS   (all round trips bit-exact)
+GATE no_expansion  PASS   (worst = rand_int, ratio 0.9997)
+GATE decode_speed  PASS   (geomean dev decode 520.7 MB/s)
+GATE encode_speed  PASS   (geomean dev encode  35.5 MB/s)
+
+reference lines (dev geomean):  zlib-6 5.677 | lzma-6 7.222 | zstd-3 5.766 | zstd-19 6.524
+```
+
+Three things this changes. First, **the bar moved up**: I guessed 2-4x in the
+intent paragraph and got 5.68, so "2.5x the baseline" now means reaching **14.2x**,
+and the codec has to beat `lzma-6` at 7.22 rather than the 5.7 I was mentally
+budgeting for. zlib is a much better column compressor than it has any right to
+be, mostly because 8-byte-strided repetition inside a numeric column is exactly
+what LZ77 match-finding is good at. Second, the **per-column table immediately
+tells us where the headroom is**: `periodic` (1.048), `gauge_f32` (1.189) and
+`counter` (4.57) are being handled terribly relative to their actual structure —
+a sawtooth with period 1024 is nearly free to encode if you model it, and a
+monotone counter should be a small delta stream, not a 328 KB LZ blob. The
+float columns are the worst offenders and the biggest prize. Third, the engineer
+reported an honest negative finding: **the no-expansion gate does not currently
+bite**. At 1.5 MB per column, zlib's ~480-byte overhead on incompressible data
+leaves the ratio at 0.9997, just inside the gate. The gate is true but untested.
+I am not going to weaken the corpus to make it bite; instead the auditor's job
+brief now explicitly includes small-array expansion tests, where header overhead
+is proportionally brutal, so the guarantee is actually exercised where it can fail.
+
+**Round 0 verdict: KEEP.** Baseline established at SCORE 5.6766.
+
+---
+
+## Round 1 — the structural core
+
+**Intent (before the round).** The naive codec has no idea it is looking at a
+numeric column; everything from here is about giving it that knowledge. Round 1
+builds the skeleton that all later schemes hang off, and it targets the integer
+columns because they are the tractable half of the problem. Three pieces. (a)
+**Per-block framing**: split the column into fixed-size blocks so that scheme
+choice is local — `regime_switch` in the holdout exists precisely because a column
+can change character halfway through, and a whole-column decision cannot win
+there. (b) **The integer model**: delta and frame-of-reference transforms followed
+by bit-packing, which should turn `counter` and `ts_ms` from LZ-compressible
+byte soup into a few bits per element. A monotone counter with Poisson increments
+has maybe 7 bits of real entropy per value; we are currently spending 14. (c) The
+piece I care most about architecturally — a **cost-model-driven selector with a
+raw fallback**. The encoder must be able to try candidate schemes, estimate output
+size cheaply, pick the winner, and fall back to storing the block verbatim. That
+fallback is what makes the no-expansion gate structurally guaranteed rather than
+accidental, and it is what will let every later round add a scheme without
+risking a regression on the incompressible columns. I am sending the evidence
+table to the architect rather than dictating the scheme list myself, because the
+per-column gaps are the whole argument for what to build and I want the
+diagnosis on the record before the implementation. Risk I am watching: bit-packing
+in pure NumPy is where the encode-speed gate could break, and a per-block Python
+loop over several candidate schemes multiplies that cost.
