@@ -27,13 +27,19 @@ import zlib
 import numpy as np
 
 # `run_bench.py` is invoked as a script (`python tscodec/bench/run_bench.py`),
-# so Python only puts its own directory on sys.path. Add the repo root (for
-# `import tscodec`) and this directory itself (for the sibling `datasets`
-# module) explicitly.
+# so Python only puts its own directory on sys.path. Add this project's root
+# (for the sibling `datasets` module and for `import tscodec` to find the
+# *inner* `tscodec/tscodec/` package directory) explicitly.
+#
+# Careful: the project root here is .../tscodec, which itself contains a
+# child directory *also* named tscodec/ (the actual package, with
+# __init__.py). Putting the project root's *parent* on sys.path instead would
+# make "import tscodec" resolve the outer, __init__-less project directory as
+# a PEP 420 namespace package and shadow the real one -- it must be the
+# project root itself that goes on sys.path.
 _THIS_DIR = pathlib.Path(__file__).resolve().parent  # .../tscodec/bench
-_PKG_DIR = _THIS_DIR.parent  # .../tscodec
-_REPO_ROOT = _PKG_DIR.parent  # repo root
-for _p in (str(_REPO_ROOT), str(_THIS_DIR)):
+_PROJECT_DIR = _THIS_DIR.parent  # .../tscodec (contains the tscodec/ package)
+for _p in (str(_PROJECT_DIR), str(_THIS_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -48,7 +54,7 @@ except ImportError:
     _HAVE_ZSTD = False
 
 REFERENCE_CAP_BYTES = 2_000_000
-HISTORY_PATH = _PKG_DIR / "results" / "history.jsonl"
+HISTORY_PATH = _PROJECT_DIR / "results" / "history.jsonl"
 
 GATE_DECODE_MB_S = 100.0
 GATE_ENCODE_MB_S = 25.0
