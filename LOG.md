@@ -28,3 +28,14 @@ no-expansion gate or come close to it on random data, which is itself a useful
 demonstration of why the gate exists. The auditor builds the fuzz suite in
 parallel with this so that round 1's first real scheme lands on top of an already
 adversarial test bed.
+
+*Delegation note.* The four agent definitions in `.claude/agents/` were written
+after this session's agent registry had already loaded, so the runtime does not
+expose them as named `subagent_type`s in this run. Rather than abandon the
+structure, every delegation below is dispatched as a generic worker with the
+role's model pinned explicitly (`opus` for the architect, `sonnet` for the
+engineer and auditor, `haiku` for the bench-runner) and with the worker instructed
+to read its own definition file from `.claude/agents/` as its first action. The
+role files stay the single source of truth for each seat's responsibility and
+boundaries; only the wiring is different. Every round below names which seat did
+which piece of work.
